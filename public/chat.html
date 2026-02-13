@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Bot</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 20px auto; padding: 20px; }
+    .chat-container { border: 1px solid #ddd; border-radius: 8px; height: 400px; overflow-y: auto; padding: 15px; background: #f8f9fa; margin-bottom: 15px; }
+    .message { margin-bottom: 10px; padding: 10px; border-radius: 8px; max-width: 80%; }
+    .user-message { background: #007bff; color: white; margin-left: auto; text-align: right; }
+    .bot-message { background: #e9ecef; color: #333; }
+    .message-meta { font-size: 11px; opacity: 0.7; margin-top: 5px; }
+    .input-area { display: flex; gap: 10px; }
+    #messageInput { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; }
+    #sendButton { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    #sendButton:hover { background: #0056b3; }
+    #sendButton:disabled { background: #ccc; cursor: not-allowed; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .btn-secondary { padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    .btn-secondary:hover { background: #5a6268; }
+    .nav { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
+    .nav a { margin-right: 15px; color: #007bff; text-decoration: none; }
+    .nav a:hover { text-decoration: underline; }
+    .error { color: #721c24; background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+    #statusBar { font-size: 12px; color: #666; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="index.html">Login</a>
+    <a href="register.html">Register</a>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="chat.html">Chat</a>
+  </div>
+
+  <div class="header">
+    <h2>Chat Bot Demo</h2>
+    <button class="btn-secondary" onclick="clearHistory()">Clear History</button>
+  </div>
+
+  <div id="error" class="error" style="display:none;"></div>
+
+  <div class="chat-container" id="chatContainer">
+    <p style="text-align: center; color: #999;">Loading chat history...</p>
+  </div>
+
+  <div class="input-area">
+    <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off">
+    <button id="sendButton" onclick="sendMessage()">Send</button>
+  </div>
+
+  <div id="statusBar"></div>
+
+  <script>
+    let isLoading = false;
+
+    async function loadHistory() {
+      try {
+        const response = await fetch('/api/chat/history');
+        const data = await response.json();
+
+        if (response.ok) {
+          displayHistory(data.history);
+          updateStatus(`${data.count} messages in history`);
+        } else {
+          showError(data.error || 'Failed to load history. Please login.');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        showError('Network error');
+      }
+    }
+
+    function displayHistory(history) {
+      const container = document.getElementById('chatContainer');
+
+      if (!history || history.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999;">No messages yet. Start chatting!</p>';
+        return;
+      }
+
+      container.innerHTML = history.map(msg => `
+        <div class="message ${msg.role === 'user' ? 'user-message' : 'bot-message'}">
+          <div>${escapeHtml(msg.content)}</div>
+          <div class="message-meta">${formatTime(msg.timestamp)}</div>
+        </div>
+      `).join('');
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function sendMessage() {
+      if (isLoading) return;
+
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+
+      if (!message) return;
+
+      isLoading = true;
+      document.getElementById('sendButton').disabled = true;
+      input.value = '';
+
+      try {
+        const response = await fetch('/api/chat/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          displayHistory(data.history);
+          updateStatus(`${data.history.length} messages in history`);
+        } else {
+          showError(data.error || 'Failed to send message');
+          input.value = message; // Restore message on error
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        showError('Network error');
+        input.value = message;
+      } finally {
+        isLoading = false;
+        document.getElementById('sendButton').disabled = false;
+        input.focus();
+      }
+    }
+
+    async function clearHistory() {
+      if (!confirm('Are you sure you want to clear chat history?')) return;
+
+      try {
+        const response = await fetch('/api/chat/clear', { method: 'DELETE' });
+        const data = await response.json();
+
+        if (response.ok) {
+          displayHistory([]);
+          updateStatus('0 messages in history');
+        } else {
+          showError(data.error || 'Failed to clear history');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        showError('Network error');
+      }
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('error');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      setTimeout(() => errorDiv.style.display = 'none', 5000);
+    }
+
+    function updateStatus(text) {
+      document.getElementById('statusBar').textContent = text;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatTime(timestamp) {
+      return new Date(timestamp).toLocaleTimeString();
+    }
+
+    // Handle Enter key
+    document.getElementById('messageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    // Load history on page load
+    loadHistory();
+  </script>
+</body>
+</html>
